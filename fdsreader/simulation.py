@@ -3,9 +3,9 @@ import logging
 import os
 import warnings
 from typing import List, TextIO, Dict, AnyStr, Sequence, Tuple, Union
+import pickle
 
 import numpy as np
-import pickle
 
 from fdsreader.fds_classes import Mesh, MeshCollection, Surface, Ventilation
 from fdsreader.bndf import Obstruction, Patch, ObstructionCollection, SubObstruction
@@ -22,13 +22,6 @@ from fdsreader.utils.data import create_hash, get_smv_file, Profile
 import fdsreader.utils.fortran_data as fdtype
 from fdsreader import settings
 from fdsreader._version import __version__
-
-
-# anthony's additions
-
-import struct
-
-import numpy as np
 
 
 class Simulation:
@@ -665,26 +658,6 @@ class Simulation:
         patches = dict()
         mesh_patches = dict()
 
-        # if os.path.exists(file_path + ".bnd"):
-        #     times = list()
-        #     lower_bounds = list()
-        #     upper_bounds = list()
-        #     with open(file_path + ".bnd", 'r') as bnd_file:
-        #         for line in bnd_file:
-        #             splits = line.split()
-        #             times.append(float(splits[0]))
-        #             lower_bounds.append(float(splits[1]))
-        #             upper_bounds.append(float(splits[2]))
-        #     times = np.array(times)
-        #     lower_bounds = np.array(lower_bounds, dtype=np.float32)
-        #     upper_bounds = np.array(upper_bounds, dtype=np.float32)
-        #     n_t = times.shape[0]
-        # else:
-        #     times = None
-        #     n_t = -1
-        #     lower_bounds = np.array([0.0], dtype=np.float32)
-        #     upper_bounds = np.array([np.float32(-1e33)], dtype=np.float32)
-
         with open(file_path, 'rb') as infile:
             # Offset of the binary file to the end of the file header.
             offset = 3 * fdtype.new((('c', 30),)).itemsize
@@ -697,61 +670,89 @@ class Simulation:
             offset += fdtype.INT.itemsize + dtype_patches.itemsize * n_patches
             patch_offset = fdtype.FLOAT.itemsize
 
-            i1, i2, j1, j2, k1, k2, ior, nb, nm = patch_infos[0][0]
+            # TODO: get these variables for patch i
+            # i1, i2, j1, j2, k1, k2, ior, nb, nm = patch_infos[0][0]
 
             times = list()
             lower_bounds = list()
             upper_bounds = list()
 
+            # get file size
+            infile_size = os.stat(file_path).st_size
+
             while True:
-                try:
+                _times = list()
+                _lower_bounds = list()
+                _upper_bounds = list()
+                for i in range(n_patches):
+
+                    i1, i2, j1, j2, k1, k2, ior, nb, nm = patch_infos[i][0]
+                    
                     time = np.fromfile(
                         infile, dtype=np.dtype("<f4"), count=3)[1]
 
-                    times.append(time)
+                    _times.append(time)
                     count = (i2 - i1 + 1) * (j2 - j1 + 1)
+                    # reading in header
                     _ = np.fromfile(infile, dtype=np.dtype("<i"), count=1)
+
+                    # FIXME: qq is for each patch. Remove this comment once the code is refactored
 
                     qq = np.fromfile(infile, dtype=np.dtype("<f4"), count=count).reshape(
                         (i2 - i1 + 1, j2 - j1 + 1))
+                
 
-                    lower_bounds.append(np.min(qq))
-                    upper_bounds.append(np.max(qq))
+                    _lower_bounds.append(np.min(qq))
+                    _upper_bounds.append(np.max(qq))
+                    # reading in footer
                     _ = np.fromfile(infile, dtype=np.dtype("<i"), count=1)
+                
+                # grab min max values for the timestep
+                times.append(np.unique(_times)) # !!! all times for this patch are the same, right?
+                upper_bounds.append(np.max(_upper_bounds))
+                lower_bounds.append(np.min(_lower_bounds))
 
-                except:
+                # This gives you a hint to my above comment. Once we read in the number of patches and get the information
+                # for each patch, we need to loop over each patch. Consider how to map a patch number (or id) to that patch's
+                # time, lower bound, and upper bound data.
+
+                # break at the end of the file
+                if infile.tell() == infile_size:
+                    print(
+                        f"\nEnd of file reached\nfile size: {infile_size}\nfile position: {infile.tell()}\n")
                     break
 
-            times = np.array(times)
-            lower_bounds = np.array(lower_bounds, dtype=np.float32)
-            upper_bounds = np.array(upper_bounds, dtype=np.float32)
+        times = np.array(times)
+        lower_bounds = np.array(lower_bounds, dtype=np.float32)
+        upper_bounds = np.array(upper_bounds, dtype=np.float32)
 
-            n_t = times.shape[0]
+        print(f'len(times): {len(times)}')
+        n_t = times.shape[0]
+        print(f'n_t: {n_t}\n')
 
-            for patch_info in patch_infos:
-                patch_info = patch_info[0]
+        for patch_info in patch_infos:
+            patch_info = patch_info[0]
 
-                extent, dimension = self._indices_to_extent(
-                    patch_info[:6], mesh)
-                orientation = patch_info[6]
-                obst_index = patch_info[7] - 1
+            extent, dimension = self._indices_to_extent(patch_info[:6], mesh)
+            orientation = patch_info[6]
+            obst_index = patch_info[7] - 1
 
-                p = Patch(file_path, dimension, extent, orientation, cell_centered,
-                          patch_offset, offset, n_t, mesh)
+            p = Patch(file_path, dimension, extent, orientation, cell_centered,
+                      patch_offset, offset, n_t, mesh)
 
-                # "Obstacles" with index -1 give the extent of the (whole) mesh faces and refer to
-                # "closed" mesh faces, therefore that data will be added to the corresponding mesh instead
-                if obst_index != -1:
-                    if obst_index not in patches:
-                        patches[obst_index] = list()
-                    patches[obst_index].append(p)
-                else:
-                    if mesh.id not in mesh_patches:
-                        mesh_patches[mesh.id] = list()
-                    mesh_patches[mesh.id].append(p)
+            # "Obstacles" with index -1 give the extent of the (whole) mesh faces and refer to
+            # "closed" mesh faces, therefore that data will be added to the corresponding mesh instead
+            if obst_index != -1:
+                if obst_index not in patches:
+                    patches[obst_index] = list()
+                patches[obst_index].append(p)
+            else:
+                if mesh.id not in mesh_patches:
+                    mesh_patches[mesh.id] = list()
+                mesh_patches[mesh.id].append(p)
 
-                patch_offset += fdtype.new(
-                    (('f', str(p.dimension.shape(cell_centered=False))),)).itemsize
+            patch_offset += fdtype.new(
+                (('f', str(p.dimension.shape(cell_centered=False))),)).itemsize
 
         for obst_index, p in patches.items():
             for patch in p:
