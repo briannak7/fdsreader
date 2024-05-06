@@ -69,33 +69,33 @@ class ParticleCollection(FDSDataCollection):
                     # Skip time value
                     infile.seek(fdtype.FLOAT.itemsize, 1)
 
-                    # # Read data for each particle class
-                    # for particle in particles:
-                    #     # Read number of particles in each class
-                    #     n_particles = fdtype.read(infile, fdtype.INT, 1)[0][0][0]
-                    #     offset = pointer_location[particle][t]
-                    #     # Read positions
-                    #     dtype_positions = fdtype.new((('f', 3 * n_particles),))
-                    #     pos = fdtype.read(infile, dtype_positions, 1)[0][0]
-                    #     particle._positions[t][offset: offset + n_particles] = pos.reshape((n_particles, 3),
-                    #                                                                        order='F').astype(float)
+                    # Read data for each particle class
+                    for particle in particles:
+                        # Read number of particles in each class
+                        n_particles = fdtype.read(infile, fdtype.INT, 1)[0][0][0]
+                        offset = pointer_location[particle][t]
+                        # Read positions
+                        dtype_positions = fdtype.new((('f', 3 * n_particles),))
+                        pos = fdtype.read(infile, dtype_positions, 1)[0][0]
+                        particle._positions[t][offset: offset + n_particles] = pos.reshape((n_particles, 3),
+                                                                                           order='F').astype(float)
 
-                    #     # Read tags
-                    #     dtype_tags = fdtype.new((('i', n_particles),))
-                    #     particle._tags[t][offset: offset + n_particles] = fdtype.read(infile, dtype_tags, 1)[0][0]
+                        # Read tags
+                        dtype_tags = fdtype.new((('i', n_particles),))
+                        particle._tags[t][offset: offset + n_particles] = fdtype.read(infile, dtype_tags, 1)[0][0]
 
-                    #     # Read actual quantity values
-                    #     if len(particle.quantities) > 0:
-                    #         dtype_data = fdtype.new(
-                    #             (('f', str((n_particles, len(particle.quantities)))),))
-                    #         data_raw = fdtype.read(infile, dtype_data, 1)[0][0].reshape(
-                    #             (n_particles, len(particle.quantities)), order='F')
+                        # Read actual quantity values
+                        if len(particle.quantities) > 0:
+                            dtype_data = fdtype.new(
+                                (('f', str((n_particles, len(particle.quantities)))),))
+                            data_raw = fdtype.read(infile, dtype_data, 1)[0][0].reshape(
+                                (n_particles, len(particle.quantities)), order='F')
 
-                    #         for q, quantity in enumerate(particle.quantities):
-                    #             particle._data[quantity.name][t][
-                    #             offset:offset + n_particles] = data_raw[:, q].astype(float)
+                            for q, quantity in enumerate(particle.quantities):
+                                particle._data[quantity.name][t][
+                                offset:offset + n_particles] = data_raw[:, q].astype(float)
 
-                    #     pointer_location[particle][t] += particle.n_particles[mesh][t]
+                        pointer_location[particle][t] += particle.n_particles[mesh][t]
 
     def __getitem__(self, key):
         if type(key) == int:

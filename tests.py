@@ -11,23 +11,23 @@ if __name__ == '__main__':
     boundary = sim.meshes[0].get_boundary_data("TOTAL HEAT FLUX")
     print(f'n_t: {boundary.n_t()}')
 
-    # # fdsreader returns data in (time, x, y) (this makes array operations difficult)
-    # data = boundary.data[boundary.orientations[0]].data
+    # fdsreader returns data in (time, x, y) (this makes array operations difficult)
+    data = boundary.data[boundary.orientations[0]].data
 
-    # # Make the data (time, y, x) so that array operations make sense
-    # data = np.swapaxes(data, 1, 2)
+    # Make the data (time, y, x) so that array operations make sense
+    data = np.swapaxes(data, 1, 2)
 
-    # times = boundary.times
-    # coords = boundary.data[boundary.orientations[0]].get_coordinates()
+    times = boundary.times
+    coords = boundary.data[boundary.orientations[0]].get_coordinates()
 
-    # print(f'Boundary data shape: {data.shape}')
+    print(f'Boundary data shape: {data.shape}')
 
 
-    # import matplotlib.pyplot as plt
+    import matplotlib.pyplot as plt
 
-    # plt.imshow(data[0])
-    # plt.colorbar()
-    # plt.show()
+    plt.imshow(data[0])
+    plt.colorbar()
+    plt.show()
 
 
     # sim = simulation.Simulation(
