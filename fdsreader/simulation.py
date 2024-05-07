@@ -663,85 +663,51 @@ class Simulation:
             offset = 3 * fdtype.new((('c', 30),)).itemsize
             infile.seek(offset)
 
+            # n_patches * info_bytes
             n_patches = fdtype.read(infile, fdtype.INT, 1)[0][0][0]
 
             dtype_patches = fdtype.new((('i', 9),))
             patch_infos = fdtype.read(infile, dtype_patches, n_patches)
             offset += fdtype.INT.itemsize + dtype_patches.itemsize * n_patches
-            patch_offset = fdtype.FLOAT.itemsize
-            
-            # initialize empty list of lists for each patch
-            all_patch_times = [[] for i in range(n_patches)]
-            all_patch_lower_bounds = [[] for i in range(n_patches)]
-            all_patch_upper_bounds = [[] for i in range(n_patches)]
-            times = []
-
+            patch_offset = fdtype.FLOAT.itemsize # can ignore
+           
             # get file size
             infile_size = os.stat(file_path).st_size
 
-            # this is read in 3 times for the multiple n_patches as there are 3 BNDF items
-            while True:
-                # read timestep for all patches
-                time = np.fromfile(
-                    infile, dtype=np.dtype("<f4"), count=3)[1]
-                times.append(time)
-                for i in range(n_patches):
+            sum_qq_bytes = 0
 
-                    i1, i2, j1, j2, k1, k2, ior, nb, nm = patch_infos[i][0]
+            # offset is now 3*38+12+(n_patches*44)
+            for i in range(n_patches):
 
-                    all_patch_times[i].append(time)
-                    count = (i2 - i1 + 1) * (j2 - j1 + 1)
-                    # reading in header
-                    _ = np.fromfile(infile, dtype=np.dtype("<i"), count=1)
+                i1, i2, j1, j2, k1, k2, ior, nb, nm = patch_infos[i][0]
+                count = (i2 - i1 + 1) * (j2 - j1 + 1)
 
-                    # FIXME: qq is for each patch. Remove this comment once the code is refactored
+                patch_qq_bytes = 4 + count + 4
+                sum_qq_bytes += patch_qq_bytes
 
-                    qq = np.fromfile(infile, dtype=np.dtype("<f4"), count=count).reshape(
-                        (i2 - i1 + 1, j2 - j1 + 1))
-                
+                print(f'sum_qq_bytes: {sum_qq_bytes}')
 
-                    all_patch_lower_bounds[i].append(np.min(qq))
-                    all_patch_upper_bounds[i].append(np.max(qq))
-                    # reading in footer
-                    _ = np.fromfile(infile, dtype=np.dtype("<i"), count=1)
+            # infile = offset + (n_t * (12 + sum_qq_bytes))
 
-                    # we never reach this
-                    if infile.tell() >= infile_size:
-                        print(f'Location of file: {infile.tell()} End of file: {infile_size}')
-                        False
-                # grab min max values for the timestep
-                # times.append(np.unique(_times)) # !!! all times for this patch are the same, right?
-                # upper_bounds.append(np.max(_upper_bounds))
-                # lower_bounds.append(np.min(_lower_bounds))
+            in_size = offset + (1001 * (12 + sum_qq_bytes))
+            print(f'Infile size and calculated size: {infile_size} {in_size}')
+            print(f'Difference between infile size and calculated size: {infile_size - in_size}')
 
-                # This gives you a hint to my above comment. Once we read in the number of patches and get the information
-                # for each patch, we need to loop over each patch. Consider how to map a patch number (or id) to that patch's
-                # time, lower bound, and upper bound data.
+            n_t = (infile_size - offset) / (12 + sum_qq_bytes)
 
-                # break at the end of the file
-                if infile.tell() >= infile_size:
-                    print(f'Location of file: {infile.tell()} End of file: {infile_size}')
-                    # print(
-                    #     f"\nEnd of file reached\nfile size: {infile_size}\nfile position: {infile.tell()}\n")
-                    break
-        print('I read in the file')
-        # all_patch_times = np.array(times)
-        # all_patch_lower_bounds = np.array(all_patch_lower_bounds, dtype=np.float32)
-        # all_patch_upper_bounds = np.array(all_patch_upper_bounds, dtype=np.float32)
+            print(f'n_t: {n_t}')
+            print(f'n_t is this far from 1001 {abs(n_t - 1001)}')
+            print(f'n_t is {n_t/1001} times the size of 1001')
+            # n_t = 1001
 
-        # print(f'len(times): {len(times)}')
+        lower_bounds = 2e8
+        upper_bounds = -2e8
 
-        # reading in the number of timesteps for an arbitrary patch
-        # all patches should have the same timesteps
-        n_t = len(all_patch_times[0])
-        # n_t = len(times)
-        print(f'n_t: {n_t}\n')
+        times = 0 # FIXME
 
         # for patch_info in patch_infos:
         print(n_patches)
         for i in range(n_patches):
-            # print('im working here')
-            # patch_info = patch_info[0]
             # patch_infos is a 3D array of size (n_patches, 1, 9)
             patch_info = patch_infos[i][0]
 
@@ -771,14 +737,14 @@ class Simulation:
                 patch._post_init(patch_offset)
 
             self._subobstructions[mesh.id][obst_index]._add_patches(bid, cell_centered, quantity,
-                                                                    short_name, unit, p, all_patch_times[obst_index],
-                                                                    all_patch_lower_bounds[obst_index], all_patch_upper_bounds[obst_index])
+                                                                    short_name, unit, p, times,
+                                                                    lower_bounds, upper_bounds)
 
         for p in mesh_patches.values():
             for patch in p:
                 patch._post_init(patch_offset)
-            patch.mesh._add_patches(bid, cell_centered, quantity, short_name, unit, p, all_patch_times[obst_index],
-                                    all_patch_lower_bounds[obst_index], all_patch_upper_bounds[obst_index])
+            patch.mesh._add_patches(bid, cell_centered, quantity, short_name, unit, p, times,
+                                    lower_bounds, upper_bounds)
 
     @log_error("geom")
     def _load_boundary_data_geom(self, smv_file: TextIO, line: str):
